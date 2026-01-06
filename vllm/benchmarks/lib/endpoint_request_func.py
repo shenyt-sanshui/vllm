@@ -176,6 +176,7 @@ async def async_request_openai_completions(
     }
     _update_headers_common(headers, request_func_input)
 
+    # 初始化输出指标
     output = RequestFuncOutput()
     output.prompt_len = request_func_input.prompt_len
 
@@ -186,15 +187,28 @@ async def async_request_openai_completions(
     try:
         async with session.post(url=api_url, json=payload, headers=headers) as response:
             if response.status == 200:
+                print(f"\n response:{response}\n")
+                # 此处会进来batch次，每个batch进来一次
+                # 成功接收响应
                 first_chunk_received = False
                 handler = StreamedResponseHandler()
 
                 async for chunk_bytes in response.content.iter_any():
+                    
                     chunk_bytes = chunk_bytes.strip()
                     if not chunk_bytes:
                         continue
-
+                    
                     messages = handler.add_chunk(chunk_bytes)
+
+                    print(f"\n chunk_bytes:{chunk_bytes} messages:{messages}\n")
+                    
+# 处理每个chunk_bytes,实际上对应的是一个输出token，每个输出token会进入一次该循环,可以看到下面的messages只有一个元素
+#  chunk_bytes:b'data: {"id":"cmpl-a46515e5d0723066","object":"text_completion","created":1767703190,"model":"/home/shenyt/WORK/MODEL/Qwen3-8B/",
+# "choices":[{"index":0,"text":" ","logprobs":null,"finish_reason":null,"stop_reason":null,"prompt_token_ids":null,"token_ids":null}],"usage":null}' 
+# messages:['data: {"id":"cmpl-a46515e5d0723066","object":"text_completion","created":1767703190,"model":"/home/shenyt/WORK/MODEL/Qwen3-8B/",
+# "choices":[{"index":0,"text":" ","logprobs":null,"finish_reason":null,"stop_reason":null,"prompt_token_ids":null,"token_ids":null}],"usage":null}']
+
                     for message in messages:
                         # NOTE: SSE comments (often used as pings) start with
                         # a colon. These are not JSON data payload and should
@@ -203,9 +217,45 @@ async def async_request_openai_completions(
                             continue
 
                         chunk = message.removeprefix("data: ")
+                        print(f"\n chunk:{chunk} message:{message}\n")
+
+# 如下为第二个batch的最后一个token对应的message和chunk示例，其中可以看到最后一个token的text是" what"，紧随着还有一个message包含了收尾信息
+
+# {
+#   "id": "cmpl-bench-95a963b8-6",     // 请求唯一ID
+#   "object": "text_completion",        // 响应对象类型
+#   "created": 1767700929,              // Unix时间戳（创建时间）
+#   "model": "/home/shenyt/WORK/MODEL/Qwen3-8B/",  // 使用的模型路径
+#   "choices": [{
+#     "index": 0,                       // 选项索引（对于n=1只有0）
+#     "text": " text",                  // ⭐ 本次生成的token文本
+#     "logprobs": null,                 // log概率（如果请求了）
+#     "finish_reason": null,            // 完成原因（未完成时为null）
+#     "stop_reason": null,              // 停止原因
+#     "prompt_token_ids": null,         // 输入token IDs
+#     "token_ids": null                 // 输出token IDs
+#   }],
+#   "usage": null                       // 流式中间响应时为null
+# }
+
+#  chunk:{"id":"cmpl-bench-95a963b8-2","object":"text_completion","created":1767700929,"model":"/home/shenyt/WORK/MODEL/Qwen3-8B/",
+# "choices":[{"index":0,"text":" what","logprobs":null,"finish_reason":"length","stop_reason":null,"prompt_token_ids":null,"token_ids":null}],"usage":null} 
+# message:data: {"id":"cmpl-bench-95a963b8-2","object":"text_completion","created":1767700929,"model":"/home/shenyt/WORK/MODEL/Qwen3-8B/",
+# "choices":[{"index":0,"text":" what","logprobs":null,"finish_reason":"length","stop_reason":null,"prompt_token_ids":null,"token_ids":null}],"usage":null}
+
+#  chunk:{"id":"cmpl-bench-95a963b8-2","object":"text_completion","created":1767700929,"model":"/home/shenyt/WORK/MODEL/Qwen3-8B/",
+# "choices":[],"usage":{"prompt_tokens":1024,"total_tokens":1034,"completion_tokens":10}} 
+# message:data: {"id":"cmpl-bench-95a963b8-2","object":"text_completion","created":1767700929,"model":"/home/shenyt/WORK/MODEL/Qwen3-8B/",
+# "choices":[],"usage":{"prompt_tokens":1024,"total_tokens":1034,"completion_tokens":10}}
+
+#  chunk:[DONE] message:data: [DONE]
 
                         if chunk != "[DONE]":
                             data = json.loads(chunk)
+                            print(f"\n data:{data}\n")
+
+#  data:{'id': 'cmpl-bench-11bdb177-6', 'object': 'text_completion', 'created': 1767702598, 'model': '/home/shenyt/WORK/MODEL/Qwen3-8B/', 
+# 'choices': [{'index': 0, 'text': ' you', 'logprobs': None, 'finish_reason': 'length', 'stop_reason': None, 'prompt_token_ids': None, 'token_ids': None}], 'usage': None}
 
                             # NOTE: Some completion API might have a last
                             # usage summary response without a token so we

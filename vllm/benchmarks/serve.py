@@ -110,7 +110,7 @@ class EmbedBenchmarkMetrics:
 
 
 def _get_current_request_rate(
-    ramp_up_strategy: Literal["linear", "exponential"] | None,
+    ramp_up_strategy: Literal["linear", "exponential"] | None, #Literal：类型标注语法，表示变量只能是特定的字面值之1
     ramp_up_start_rps: int | None,
     ramp_up_end_rps: int | None,
     request_index: int,
@@ -563,7 +563,7 @@ async def benchmark(
         extra_headers=extra_headers,
         extra_body=extra_body,
     )
-
+    # 超时等待，检查端点是否准备好，默认600秒
     if ready_check_timeout_sec > 0:
         test_output = await wait_for_endpoint(
             request_func,
@@ -663,7 +663,7 @@ async def benchmark(
             return await request_func(
                 request_func_input=request_func_input, session=session, pbar=pbar
             )
-
+    # 正式开始计时
     benchmark_start_time = time.perf_counter()
     tasks: list[asyncio.Task] = []
 
@@ -686,6 +686,11 @@ async def benchmark(
         ramp_up_start_rps,
         ramp_up_end_rps,
     ):
+        print(f"\nrequest:{request}, current_request_rate:{current_request_rate}\n")
+
+        # 共有batch个request，request_id尾标从0到batch-1
+        # 格式为：request:SampleRequest(prompt=' Concert Allocäre.repla_PS...', prompt_len=1024, expected_output_len=10, multi_modal_data=None, lora_request=None, request_id='bench-48d9b60b-4')
+       
         if ramp_up_strategy is not None:
             current_int_rps = int(current_request_rate)
             if current_int_rps > last_int_rps:
@@ -719,6 +724,17 @@ async def benchmark(
             extra_body=extra_body,
             request_id=request_id,
         )
+
+        print(f"\nrequest_func_input:{request_func_input}\n")
+        # request_func_input:RequestFuncInput(prompt=' oppressiveCo sez...', 
+        # api_url='http://127.0.0.1:8000/v1/completions', 
+        # prompt_len=1024, output_len=10, model='/home/shenyt/WORK/MODEL/Qwen3-8B/', 
+        # model_name=None, logprobs=None, extra_headers=None, 
+        # extra_body={'temperature': 0.0}, 
+        # multi_modal_content=None, ignore_eos=True, 
+        # language=None, request_id='bench-2893ce02-2')
+
+        # 创建异步任务，并添加到任务列表中
         tasks.append(
             asyncio.create_task(
                 limited_request_func(
@@ -726,13 +742,26 @@ async def benchmark(
                 )
             )
         )
+
+    # 并发执行所有的task并收集结果，*tasks是解包操作，将列表解包
     outputs: list[RequestFuncOutput] = await asyncio.gather(*tasks)
 
+    print(f"\n outputs:{outputs}\n")
+    #  outputs:[
+    #     RequestFuncOutput(generated_text=' 1990 1991', success=True                           , latency=0.7050096821039915, output_tokens=10, ttft=0.24546070583164692, itl=[0.14650470670312643, 0.1465914687141776, 0.08441733196377754, 0.013106810860335827, 0.014194107614457607, 0.013738482259213924, 0.013713124208152294, 0.014185079373419285, 0.013098359107971191], tpot=0.0, prompt_len=1024, error='', start_time=6070435.874497513), 
+    #     RequestFuncOutput(generated_text='\n\t\t"\t\t"\t\t"', success=True                    , latency=0.691782827489078,  output_tokens=10, ttft=0.09756533522158861, itl=[0.14782331511378288, 0.14645248372107744, 0.1465479927137494, 0.0844386164098978, 0.01310696080327034, 0.014197606593370438, 0.013734162785112858, 0.013715979643166065, 0.014202162623405457], tpot=0.0, prompt_len=1024, error='', start_time=6070435.874682141), 
+    #     RequestFuncOutput(generated_text="\nOkay, let's try to figure out what", success=True , latency=0.7181990817189217, output_tokens=10, ttft=0.3911207392811775,  itl=[0.1464057182893157, 0.08429866284132004, 0.013141470029950142, 0.014201727695763111, 0.013794079422950745, 0.013645491562783718, 0.01409708522260189, 0.013234958052635193, 0.01425937656313181], tpot=0.0, prompt_len=1024, error='', start_time=6070435.875433419), 
+    #     RequestFuncOutput(generated_text="\n``` \n\nIt seems like you've pasted", success=True, latency=0.7183340713381767, output_tokens=10, ttft=0.391012285836041,   itl=[0.14650053158402443, 0.08439610712230206, 0.013107365928590298, 0.014190985821187496, 0.013739866204559803, 0.013711446896195412, 0.014028518460690975, 0.01326662302017212, 0.014380495063960552], tpot=0.0, prompt_len=1024, error='', start_time=6070435.875526046), 
+    #     RequestFuncOutput(generated_text="\n\x0c\n\nOkay, let's try to figure", success=True  , latency=0.7313934443518519, output_tokens=10, ttft=0.5374159757047892,  itl=[0.0843717623502016, 0.013109774328768253, 0.014136371202766895, 0.013795186765491962, 0.013711902312934399, 0.014029540121555328, 0.013218836858868599, 0.01434567291289568, 0.013258581049740314], tpot=0.0, prompt_len=1024, error='', start_time=6070435.875605718), 
+    #     RequestFuncOutput(generated_text=' \n\t\t"\t\t"\t\t"', success=True                   , latency=0.7307853354141116, output_tokens=10, ttft=0.5365384621545672,  itl=[0.08422770537436008, 0.01316402293741703, 0.014199560508131981, 0.013716785237193108, 0.013690552674233913, 0.014131205156445503, 0.013259785249829292, 0.014226442202925682, 0.013631019741296768], tpot=0.0, prompt_len=1024, error='', start_time=6070435.87639385), 
+    #     RequestFuncOutput(generated_text='\n \x0c\n\nIt seems like the text you', success=True, latency=0.7447765851393342, output_tokens=10, ttft=0.6207393063232303,  itl=[0.01315395999699831, 0.014203473925590515, 0.01371553260833025, 0.013691256754100323, 0.014129986986517906, 0.013248014263808727, 0.01424199715256691, 0.013682767748832703, 0.013970555737614632], tpot=0.0, prompt_len=1024, error='', start_time=6070435.876467676), 
+    #     RequestFuncOutput(generated_text="\n \x0c\n\nOkay, let's try to", success=True        , latency=0.7445729281753302, output_tokens=10, ttft=0.6204691659659147,  itl=[0.013229554519057274, 0.014192171394824982, 0.013737804256379604, 0.013674413785338402, 0.014118940569460392, 0.013303197920322418, 0.014139591716229916, 0.013560842722654343, 0.014147639274597168], tpot=0.0, prompt_len=1024, error='', start_time=6070435.876527536)]
+    
     if pbar is not None:
         pbar.close()
 
     benchmark_duration = time.perf_counter() - benchmark_start_time
-
+    # print(f"\n Benchmark run completed in {benchmark_duration:.2f} seconds. input_requests:{input_requests} \noutputs:{outputs}\n")
     if task_type == TaskType.GENERATION:
         metrics, actual_output_lens = calculate_metrics(
             input_requests=input_requests,
